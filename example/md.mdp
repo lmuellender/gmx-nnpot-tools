@@ -1,0 +1,61 @@
+; Run parameters
+integrator	        = md   	
+ld-seed		        = -1
+bd-fric		        = 0
+nsteps		        = 10000
+dt		            = 0.001
+
+; Output control
+nstxout		        = 100
+nstvout		        = 100
+;nstxtcout	        = 100
+nstenergy	        = 100
+nstlog		        = 100
+
+; Bond parameters
+continuation	    = no
+constraints	        = none
+
+; Neighborsearching
+; ns_type		    = grid
+cutoff-scheme       = Verlet
+nstlist		        = 15
+rlist		        = 1.2
+rcoulomb	        = 1.2
+rvdw		        = 1.2
+pbc		            = xyz
+
+; Electrostatics
+coulombtype	        = PME
+coulomb-modifier    = none
+pme_order	        = 4
+fourierspacing	    = 0.125
+
+; Temperature coupling
+tcoupl		        = v-rescale
+tc-grps		        = system
+tau_t		        = 2.0
+ref_t		        = 300
+
+; Pressure coupling
+pcoupl		        = C-rescale
+tau_p               = 4.0
+compressibility     = 4.46e-5
+ref_p               = 1.0
+
+comm-mode 	        = linear
+
+; Dispersion correction
+;DispCorr	        = AllEnerPres
+
+; Velocity generation
+gen_vel		        = no
+
+; Neural Network potential
+nnpot-active		= yes
+nnpot-modelfile 	= ../models/ani2x.pt
+nnpot-input-group	= protein
+nnpot-model-input1  = atom-positions
+nnpot-model-input2  = atom-numbers
+nnpot-model-input3 	= box
+nnpot-model-input4	= pbc
