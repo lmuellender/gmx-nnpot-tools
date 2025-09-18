@@ -1,31 +1,35 @@
 import torch
-from emle.models import ANI2xEMLE, MACEEMLE
-
 from typing import Optional
-from emle._units import (
-    _NANOMETER_TO_ANGSTROM,
-    _NANOMETER_TO_BOHR,
-    _BOHR_TO_ANGSTROM,
-    _HARTREE_TO_KJ_MOL,
-)
+
+try:
+    from emle.models import ANI2xEMLE, MACEEMLE
+    from emle._units import (
+        _NANOMETER_TO_ANGSTROM,
+        _HARTREE_TO_KJ_MOL,
+    )
+except ImportError:
+    ANI2xEMLE = None
+    MACEEMLE = None
+    _NANOMETER_TO_ANGSTROM = None
+    _HARTREE_TO_KJ_MOL = None
 
 class GmxEMLEModel(torch.nn.Module):
-    def __init__(self, flavour: str, **kwargs):
+    def __init__(self, flavor: str, **kwargs):
         super().__init__()
-
-        if flavour == 'ani2x':
+        assert ANI2xEMLE is not None and MACEEMLE is not None, "EMLE models require the emle package to be installed."
+        if flavor == 'ani2x':
             self.model = ANI2xEMLE(**kwargs)
             self.is_nnpops = self.model._is_nnpops
-        elif flavour == 'mace':
+        elif flavor == 'mace':
             self.model = MACEEMLE(**kwargs)
             self.is_nnpops = False
         else:
-            raise ValueError(f"Unknown flavour {flavour}. Should be one of ['ani2x', 'mace']")
+            raise ValueError(f"Unknown flavor {flavor}. Should be one of ['ani2x', 'mace']")
 
         self.length_conversion = _NANOMETER_TO_ANGSTROM
         self.energy_conversion = _HARTREE_TO_KJ_MOL
 
-    def forward(self, atomic_numbers, positions_nn, positions_mm, charges_mm, qm_charge: Optional[int]=None):
+    def forward(self, positions_nn, atomic_numbers, positions_mm, charges_mm, qm_charge: Optional[int]=None):
         device = positions_nn.device
         # convert units 
         positions_nn = positions_nn * self.length_conversion

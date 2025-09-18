@@ -4,19 +4,14 @@ channels:
   - conda-forge
 
 dependencies:
-  - ambertools
   - ase
-  - deepmd-kit
   - ipykernel
   - loguru
   - nnpops
   - pip
-  - psutil
   - pygit2
-  - pytorch
-  - python
   - pyyaml
-  - torchani
-  - xtb-python
   - pip:
+    - torch==2.6.0
+    - torchani==2.2.4
     - mace-torch
