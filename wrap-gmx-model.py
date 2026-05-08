@@ -130,7 +130,7 @@ def checkExtensions():
 
 def main(args):
     # device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # Get the atomic numbers from the gromacs index and coordinate files
     if args.grofile is not None and "nutmeg" not in args.model:
@@ -161,10 +161,9 @@ def main(args):
             model = GmxEMLEModel(flavor="mace", atomic_numbers=atomic_numbers, model_index=args.model_index, dtype=torch.float32, device=device)
             print(f"Saving MACE-EMLE model with {args.use_opt} optimization to {args.outfile}")
         else:
-            if GmxMACEModelNoPairs is not None:
-                model = GmxMACEModelNoPairs(size="small", device=device)
-            else:
-                model = GmxMACEModel(size="small", device=device)
+            # find model size from name
+            size = "small" if "small" in args.model else "medium" if "medium" in args.model else "large" if "large" in args.model else "small"
+            model = GmxMACEModel(size=size, device=device)
             print(f"Saving MACE model to {args.outfile}")
 
     elif "aimnet" in args.model:
@@ -188,7 +187,13 @@ def main(args):
     
     # Save the model
     assert args.outfile.endswith(".pt"), "Output file name must end with .pt"
-    torch.jit.script(model).save(args.outfile, _extra_files=extensions)
+    if not "mace" in args.model:
+        torch.jit.script(model).save(args.outfile, _extra_files=extensions)
+    else:
+        # for MACE, we need to use the e3nn scipting function
+        from e3nn.util.jit import script
+        scripted_model = script(model)
+        scripted_model.save(args.outfile, _extra_files=extensions)
     print(f"Saved wrapped model to {args.outfile}.")
 
 

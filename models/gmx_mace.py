@@ -2,19 +2,21 @@ import torch
 from typing import Optional
 try:
     from mace.calculators import mace_off
-    from emle.models._utils import _get_neighbor_pairs
-
 except ImportError:
     mace_off = None
     scatter_sum = None
+
+try:
+    from emle.models._utils import _get_neighbor_pairs
+except ImportError:
     _get_neighbor_pairs = None
 
 class GmxMACEModel(torch.nn.Module):
-    def __init__(self, size, device, **kwargs):
+    def __init__(self, size: str, device:str, **kwargs):
         super().__init__()
         assert mace_off is not None, "MACE model requires the mace package to be installed."
         assert size in ["small", "medium", "large"], "Invalid MACE model size"
-        model = mace_off(size, device, return_raw_model="true").to(torch.float32)
+        model = mace_off(size, device, return_raw_model=True).to(torch.float32)
         self.model = model
         self.z_table = model.atomic_numbers.tolist()
         self.register_buffer("r_max", model.r_max)
@@ -86,7 +88,7 @@ class GmxMACEModel(torch.nn.Module):
         if total_energy is None:
             total_energy = torch.tensor(0.0, device=device)
 
-        return total_energy
+        return total_energy * self.energy_conversion
     
 
 class GmxMACEModelNoPairs(torch.nn.Module):
@@ -172,4 +174,4 @@ class GmxMACEModelNoPairs(torch.nn.Module):
         if total_energy is None:
             total_energy = torch.tensor(0.0, device=device)
 
-        return total_energy
+        return total_energy * self.energy_conversion
