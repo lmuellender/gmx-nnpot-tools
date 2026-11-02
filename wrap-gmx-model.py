@@ -3,6 +3,10 @@ import numpy as np
 import argparse as ap
 import os
 try:
+    from models.gmx_ani import GmxANIv2Model
+except ImportError:
+    GmxANIv2Model = None
+try:
     from models.gmx_ani import GmxANIModel
 except ImportError:
     GmxANIModel = None
@@ -14,7 +18,6 @@ try:
     from models.gmx_aimnet import GmxAIMNet2Model
 except ImportError:
     GmxAIMNet2Model = None
-    GmxAIMNet2Model = None
 try:
     from models.gmx_emle import GmxEMLEModel
 except ImportError:
@@ -24,9 +27,13 @@ try:
 except ImportError:
     GmxNutmegModel, gasteigerChargesFromGroFile, create_atom_features = None, None, None
 
-# set this value to true to export a mace model that does not need pair input
-_use_nnpops_pairs = False
-
+# Maps the leading characters of a GROMACS atom name to an atomic number.
+# This covers the ANI-2x element set (H, C, N, O, F, S, Cl), which is also a
+# superset of ANI-1x. Note that inferring elements from atom names is inherently
+# ambiguous for two-letter elements (e.g. an alpha carbon "CA" vs. calcium), so
+# this is deliberately kept to elements whose single-letter prefix is unambiguous
+# in typical biomolecular naming. For systems with metals/halogens beyond this
+# set, supply an explicit index file or extend this map for your naming scheme.
 _map_atom_number = {
     "h": 1,
     "c": 6,
@@ -38,12 +45,14 @@ _map_atom_number = {
 }
 
 def atomNumberFromLine(line):
-    atype = line.split()[1].lower()
+    # .gro is a fixed-width format: columns 10:15 hold the atom name, regardless
+    # of coordinate precision or whitespace between fields.
+    atype = line[10:15].strip().lower()
     # Sort keys by length descending to match 'cl' before 'c'
     for key in sorted(_map_atom_number.keys(), key=len, reverse=True):
         if atype.startswith(key):
             return _map_atom_number[key]
-    raise ValueError(f"Atom number couldn't be inferred from line: {line}")
+    raise ValueError(f"Atom number couldn't be inferred from atom name {atype!r} in line: {line!r}")
 
 def getIndices(ndxfile, group=None):
     """
@@ -86,28 +95,31 @@ def getAtomNumbers(grofile, ndxfile=None, group=None):
     if group is None:
         group = ""
 
-    # Read the GROMACS coordinate file
+    # Read the GROMACS coordinate file. Line 2 holds the atom count, which lets us
+    # slice out exactly the atom records and exclude the trailing box-vector line.
     with open(grofile, 'r') as f:
-        lines = f.readlines()[2:]  # Skip the first two lines (title and number of atoms)
+        all_lines = f.readlines()
+    natoms = int(all_lines[1])
+    atom_lines = all_lines[2:2 + natoms]
 
-    # Get atomic numbers based on indices
+    # Get atomic numbers based on indices. Columns 15:20 hold the (fixed-width) atom index.
     atomic_numbers = []
     if indices:
+        line_by_index = {int(line[15:20]): line for line in atom_lines}
         for idx in indices:
-            for line in lines:
-                if int(line.split()[2]) == idx:
-                    atomic_numbers.append(atomNumberFromLine(line))
-                    break
+            line = line_by_index.get(idx)
+            if line is None:
+                raise ValueError(f"Atom index {idx} from the index file was not found in {grofile}.")
+            atomic_numbers.append(atomNumberFromLine(line))
     elif group.lower() == "system":
         # If the group is "System", use all atoms
-        for line in lines[:-1]:  # Skip the last line (box dimensions)
+        for line in atom_lines:
             atomic_numbers.append(atomNumberFromLine(line))
     else:
-        # If not, use all atoms until the first water or EOF
-        for line in lines:
-            if "SOL" in line or len(line.split()) <= 3:
+        # If not, use all atoms until the first water residue
+        for line in atom_lines:
+            if "SOL" in line[5:10]:  # residue-name field
                 break
-            # get the atom type and infer number, assuming the first part is the atom type
             atomic_numbers.append(atomNumberFromLine(line))
     assert atomic_numbers, "Atom numbers could not be read from the coordinate file."
     print(f"Read atom numbers from coordinate file: {' '.join(map(str, atomic_numbers))}")
@@ -140,17 +152,22 @@ def main(args):
 
     # Create the model
     if "ani" in args.model:
-        assert GmxANIModel is not None, "ANI model is not available. Please install the required dependencies."
         if "emle" in args.model:
             assert GmxEMLEModel is not None, "EMLE wrapper for ANI is not available. Please install the required dependencies."
             model = GmxEMLEModel(flavor="ani2x", atomic_numbers=atomic_numbers, model_index=args.model_index, dtype=torch.float32, device=device)
             print(f"Saving ANI2x-EMLE model to {args.outfile}")
         elif args.model == "ani1x":
-            model = GmxANIModel(use_opt=args.use_opt, atomic_numbers=atomic_numbers, model_index=args.model_index, version=1, device=device)
-            print(f"Saving ANI-1x model with {args.use_opt} optimization to {args.outfile}")
+            assert GmxANIv2Model is not None, "ANI model is not available. Please install the required dependencies."
+            model = GmxANIv2Model(model_index=args.model_index, version=1, device=device)
+            print(f"Saving ANI-1x model to {args.outfile}")
         elif args.model == "ani2x":
-            model = GmxANIModel(use_opt=args.use_opt, atomic_numbers=atomic_numbers, model_index=args.model_index, version=2, device=device)
-            print(f"Saving ANI-2x model with {args.use_opt} optimization to {args.outfile}")
+            assert GmxANIv2Model is not None, "ANI model is not available. Please install the required dependencies."
+            model = GmxANIv2Model(model_index=args.model_index, version=2, device=device)
+            print(f"Saving ANI-2x model to {args.outfile}")
+        elif args.model == "ani2x_nnpops":
+            assert GmxANIModel is not None, "ANI model is not available. Please install the required dependencies."
+            model = GmxANIModel(use_opt="nnpops", atomic_numbers=atomic_numbers, model_index=args.model_index, version=2, device=device)
+            print(f"Saving ANI-2x model with NNPOps optimization to {args.outfile}")
         else:
             raise ValueError("Invalid model name for ANI: {}".format(args.model))
 
@@ -159,7 +176,7 @@ def main(args):
         if "emle" in args.model:
             assert GmxEMLEModel is not None, "EMLE wrapper for MACE is not available. Please install the required dependencies."
             model = GmxEMLEModel(flavor="mace", atomic_numbers=atomic_numbers, model_index=args.model_index, dtype=torch.float32, device=device)
-            print(f"Saving MACE-EMLE model with {args.use_opt} optimization to {args.outfile}")
+            print(f"Saving MACE-EMLE model to {args.outfile}")
         else:
             # find model size from name
             size = "small" if "small" in args.model else "medium" if "medium" in args.model else "large" if "large" in args.model else "small"
@@ -197,11 +214,18 @@ def main(args):
     print(f"Saved wrapped model to {args.outfile}.")
 
 
+def _outfile(value):
+    if not value.endswith(".pt"):
+        raise ap.ArgumentTypeError("Output file name must end with .pt")
+    return value
+
+
 if __name__ == "__main__":
     parser = ap.ArgumentParser(description="Wrap a NNP model for use in GROMACS.")
-    parser.add_argument("model", type=str, help="Model to wrap. Should be one of ani1x, ani2x, ani2x_emle, mace, mace_emle, aimnet, nutmeg.")
-    parser.add_argument("--outfile", type=str, default="model_gmx.pt", help="Output file name")
-    parser.add_argument("--use-opt", type=str, default=None, help="Use optimization (cuaev, nnpops)")
+    parser.add_argument("model", type=str,
+                        choices=["ani1x", "ani2x", "ani2x_emle",  "ani2x_nnpops", "mace", "mace_small", "mace_medium", "mace_large", "mace_emle", "aimnet", "nutmeg"],
+                        help="Model to wrap. For MACE, 'mace' defaults to mace_small.")
+    parser.add_argument("--outfile", type=_outfile, default="model_gmx.pt", help="Output file name (must end with .pt)")
     parser.add_argument("--group", type=str, default=None, help="Index group name")
     parser.add_argument("--ndxfile", type=str, default=None, help="GROMACS Index file")
     parser.add_argument("--grofile", type=str, default=None, help="GROMACS Coordinate file")

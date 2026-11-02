@@ -1,10 +1,9 @@
+import os
 import torch
 from typing import Optional
 import MDAnalysis as mda
 from rdkit import Chem
 from rdkit.Chem import rdDetermineBonds, rdPartialCharges
-
-NUTMEG_MODEL_FILE = "/home/lukas/Documents/nnpot/models/nutmeg-small-raw.pt"
 
 def gasteigerChargesFromGroFile(gro_file, total_charge=0):
     """ Attempts to read a .gro file and compute Gasteiger charges for the atoms in it.
@@ -61,7 +60,11 @@ def create_atom_features(symbols, charges):
 class GmxNutmegModel(torch.nn.Module):
     def __init__(self, types, node_attrs):
         super().__init__()
-        self.model = torch.load(NUTMEG_MODEL_FILE, weights_only=False)
+        model_file = os.environ.get("NUTMEG_MODEL_FILE")
+        if model_file is None:
+            raise RuntimeError("NUTMEG_MODEL_FILE environment variable is not set. "
+                               "Set it to the path of the raw Nutmeg model file.")
+        self.model = torch.load(model_file, weights_only=False)
         self.types = torch.nn.Parameter(types, requires_grad=False)
         self.node_attrs = torch.nn.Parameter(node_attrs, requires_grad=False)
         self.length_conversion = 10.0       # nm (gmx) --> Å (nutmeg)
@@ -72,7 +75,7 @@ class GmxNutmegModel(torch.nn.Module):
         atomic_numbers = atomic_numbers
         positions = positions * self.length_conversion # nm --> Å
         if cell is not None:
-            cell *= self.length_conversion  # nm --> Å
+            cell = cell * self.length_conversion  # nm --> Å
 
         # Run the model
         # with torch.jit.optimized_execution(False): # pyright: ignore[reportPrivateImportUsage]
@@ -82,9 +85,8 @@ class GmxNutmegModel(torch.nn.Module):
 
 
 if __name__ == "__main__":
-    # test charge and symbol extraction from gro file
-    gro_file = "/home/lukas/Documents/nnpot/test/alanine/ala2.gro"
-    # gro_file = "/home/lukas/Documents/nnpot/benchmark/water_new/waters_100/em.gro"
+    import sys
+    gro_file = sys.argv[1]
     symbols, charges = gasteigerChargesFromGroFile(gro_file)
     print("Symbols: ", symbols)
     print("Charges: ", charges)

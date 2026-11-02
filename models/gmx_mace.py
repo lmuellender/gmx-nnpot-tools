@@ -97,7 +97,7 @@ class GmxMACEModelNoPairs(torch.nn.Module):
         assert mace_off is not None, "MACE model requires the mace package to be installed."
         assert _get_neighbor_pairs is not None, "MACE model requires the emle package to be installed for neighbor list computation."
         assert size in ["small", "medium", "large"], "Invalid MACE model size"
-        model = mace_off(size, device, return_raw_model="true").to(torch.float32)
+        model = mace_off(size, device, return_raw_model=True).to(torch.float32)
         self.model = model
         self.z_table = model.atomic_numbers.tolist()
         self.register_buffer("r_max", model.r_max)
